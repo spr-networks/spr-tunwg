@@ -47,19 +47,18 @@ const emptyForward = {
 }
 
 const WarningBanner = () => (
-  <Card>
-    <HStack space="sm" alignItems="center">
+  <Card tone="warning" p="$4">
+    <HStack space="sm" alignItems="flex-start">
       <StatusDot warn />
-      <VStack flex={1}>
+      <VStack flex={1} space="xs">
         <Text size="sm" bold>
-          Every forward publishes an internal service to the public internet
+          Publishing makes this service reachable from the public internet
         </Text>
-        <Text size="xs" color="$muted500">
-          Tunnels are outward-facing: anyone who discovers the URL can reach
-          the target device through the tunwg.dev/tunwg.com relay, and new
-          hostnames appear in public certificate transparency logs. Only
-          expose services you intend to make reachable from anywhere, and
-          prefer adding basic auth.
+        <Text size="xs" color="$muted600" sx={{ _dark: { color: '$muted300' } }}>
+          Anyone with the URL can reach the target through the tunwg.dev or
+          tunwg.com relay, and new hostnames appear in public certificate
+          transparency logs. Publish only intentional services and prefer
+          basic authentication.
         </Text>
       </VStack>
     </HStack>
@@ -251,6 +250,19 @@ export default function Plugin() {
       <ListHeader
         title="Tunwg"
         description="Expose local services with public HTTPS URLs over outbound WireGuard tunnels"
+        mark="tw"
+        status={
+          total === 0
+            ? 'Ready'
+            : running === total
+            ? 'Publishing'
+            : running > 0
+            ? 'Degraded'
+            : 'Offline'
+        }
+        statusAction={
+          total === 0 ? 'info' : running === total ? 'success' : running > 0 ? 'warning' : 'error'
+        }
       >
         <Button size="sm" onPress={() => setShowAdd(true)}>
           <ButtonText>Add Forward</ButtonText>
