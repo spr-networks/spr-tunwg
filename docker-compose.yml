@@ -1,0 +1,34 @@
+version: '3.4'
+
+x-labels:
+  &default-labels
+  # constant (not $CI) so digests are reproducible across CI/local
+  org.supernetworks.ci: "true"
+  org.supernetworks.version: ${RELEASE_VERSION:-latest}${RELEASE_CHANNEL:-}
+
+services:
+  spr-tunwg:
+    container_name: spr-tunwg
+    image: ghcr.io/spr-networks/spr-tunwg:${RELEASE_VERSION:-latest}${RELEASE_CHANNEL:-}
+    build:
+      context: "${BUILDCTX:-.}"
+      labels: *default-labels
+    security_opt:
+      - no-new-privileges:true
+    # Outbound-only userspace WireGuard (gVisor netstack): no capabilities,
+    # no /dev/net/tun, no sysctls, no published host ports.
+    networks:
+      tunwgnet:
+    volumes:
+      - "${SUPERDIR}./state/plugins/spr-tunwg:/state/plugins/spr-tunwg"
+      - "${SUPERDIR}./state/public/:/state/public/:ro"
+      - "${SUPERDIR}./state/api/:/state/api/:ro"
+      - "${SUPERDIR}./configs/base/config.sh:/configs/base/config.sh:ro"
+      - "${SUPERDIR}./configs/plugins/spr-tunwg:/configs/spr-tunwg"
+
+# Note, if updating the bridge name, also update plugin.json
+# NetworkCapabilities.Interface and install.sh's custom_interface call.
+networks:
+  tunwgnet:
+    driver_opts:
+      com.docker.network.bridge.name: spr-tunwg
