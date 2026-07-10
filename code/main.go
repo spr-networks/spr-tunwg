@@ -297,6 +297,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", handleGetStatus)
+	mux.HandleFunc("GET /topology", handleGetTopology)
 	mux.HandleFunc("GET /forwards", handleGetForwards)
 	mux.HandleFunc("POST /forwards", handleAddForward)
 	mux.HandleFunc("DELETE /forwards/{name}", handleDeleteForward)
