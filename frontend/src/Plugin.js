@@ -156,11 +156,46 @@ const RowBadge = ({ children }) => (
 )
 
 const ForwardRow = ({ item, toggleBusy, onToggle, onDelete, onCopy }) => {
+  const [showCredentials, setShowCredentials] = useState(false)
+  const [credentials, setCredentials] = useState(null)
+  const [credentialsBusy, setCredentialsBusy] = useState(false)
+  const [credentialsError, setCredentialsError] = useState(null)
+  const [showFailureDetails, setShowFailureDetails] = useState(false)
+
   const st = item.Status || {}
   const online = !!st.Running && !!st.PublicURL
   const warn = !!item.Enabled && !online
   const publicURL = st.PublicURL || ''
   const started = st.Running ? timeAgo(st.StartedAt) : null
+  const failureReason = st.LastErrorReason || ''
+  const lastLog = Array.isArray(st.LastLog) ? st.LastLog : []
+
+  const toggleCredentials = () => {
+    if (showCredentials) {
+      setShowCredentials(false)
+      return
+    }
+    if (credentials) {
+      setShowCredentials(true)
+      return
+    }
+
+    setCredentialsBusy(true)
+    setCredentialsError(null)
+    api
+      .get(
+        `${PLUGIN_BASE}/forwards/${encodeURIComponent(item.Name)}/credentials`
+      )
+      .then((value) => {
+        setCredentials(value)
+        setShowCredentials(true)
+      })
+      .catch(() => {
+        setCredentialsError('Could not load the saved credentials')
+        setShowCredentials(true)
+      })
+      .finally(() => setCredentialsBusy(false))
+  }
 
   const meta = []
   if (st.Restarts > 0) {
@@ -174,8 +209,8 @@ const ForwardRow = ({ item, toggleBusy, onToggle, onDelete, onCopy }) => {
   if (!item.Enabled) {
     stateText = 'Disabled'
   } else if (!publicURL) {
-    stateText = st.LastError
-      ? `Reconnecting — ${st.LastError}`
+    stateText = failureReason
+      ? `Retrying — ${failureReason}`
       : 'Connecting…'
   }
 
@@ -197,6 +232,22 @@ const ForwardRow = ({ item, toggleBusy, onToggle, onDelete, onCopy }) => {
           </Text>
           {item.AuthConfigured ? <RowBadge>basic auth</RowBadge> : null}
           {item.Relay ? <RowBadge>https relay</RowBadge> : null}
+          {item.AuthConfigured ? (
+            <Button
+              size="xs"
+              variant="link"
+              isDisabled={credentialsBusy}
+              onPress={toggleCredentials}
+            >
+              <ButtonText>
+                {credentialsBusy
+                  ? 'Loading…'
+                  : showCredentials
+                  ? 'Hide credentials'
+                  : 'Show credentials'}
+              </ButtonText>
+            </Button>
+          ) : null}
         </HStack>
         <HStack space="sm" alignItems="center" flexWrap="wrap">
           <Text size="xs" fontFamily="$mono" color="$muted500">
@@ -220,6 +271,101 @@ const ForwardRow = ({ item, toggleBusy, onToggle, onDelete, onCopy }) => {
             </Text>
           )}
         </HStack>
+        {showCredentials ? (
+          <VStack space="xs" py="$1">
+            {credentialsError ? (
+              <Text size="xs" color="$muted500">
+                {credentialsError}
+              </Text>
+            ) : credentials ? (
+              <>
+                <Text size="2xs" color="$muted500">
+                  Saved basic auth credentials
+                </Text>
+                <HStack space="xs" alignItems="center" flexWrap="wrap">
+                  <Text size="xs" color="$muted500">
+                    Username
+                  </Text>
+                  <Text size="xs" fontFamily="$mono">
+                    {credentials.Username}
+                  </Text>
+                  <Button
+                    size="xs"
+                    variant="link"
+                    onPress={() => onCopy(credentials.Username)}
+                  >
+                    <ButtonText>Copy</ButtonText>
+                  </Button>
+                </HStack>
+                {credentials.PasswordAvailable ? (
+                  <HStack space="xs" alignItems="center" flexWrap="wrap">
+                    <Text size="xs" color="$muted500">
+                      Password
+                    </Text>
+                    <Text size="xs" fontFamily="$mono">
+                      {credentials.Password}
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="link"
+                      onPress={() => onCopy(credentials.Password)}
+                    >
+                      <ButtonText>Copy</ButtonText>
+                    </Button>
+                  </HStack>
+                ) : (
+                  <Text size="xs" color="$muted500">
+                    The password cannot be recovered for forwards created
+                    before credential saving was added. The username is still
+                    available above.
+                  </Text>
+                )}
+              </>
+            ) : null}
+          </VStack>
+        ) : null}
+        {warn && failureReason ? (
+          <VStack space="xs" py="$1">
+            <HStack space="xs" alignItems="center" flexWrap="wrap">
+              <Badge action="error" variant="outline" borderRadius="$full">
+                <BadgeText>Tunnel failed</BadgeText>
+              </Badge>
+              <Text size="xs" fontWeight="$semibold">
+                {failureReason}
+              </Text>
+            </HStack>
+            {st.LastErrorHint ? (
+              <Text size="xs" color="$muted500" lineHeight="$sm">
+                {st.LastErrorHint}
+              </Text>
+            ) : null}
+            <Button
+              size="xs"
+              variant="link"
+              alignSelf="flex-start"
+              onPress={() => setShowFailureDetails(!showFailureDetails)}
+            >
+              <ButtonText>
+                {showFailureDetails
+                  ? 'Hide technical details'
+                  : 'Show technical details'}
+              </ButtonText>
+            </Button>
+            {showFailureDetails ? (
+              <Text size="2xs" fontFamily="$mono" color="$muted500">
+                {[
+                  Number.isInteger(st.LastExitCode)
+                    ? `Exit status: ${st.LastExitCode}`
+                    : null,
+                  ...lastLog,
+                  lastLog.length ? null : st.LastError
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+              </Text>
+            ) : null}
+          </VStack>
+        ) : null}
         {meta.length ? (
           <Text size="2xs" color="$muted400">
             {meta.join(' · ')}
@@ -329,13 +475,23 @@ export default function Plugin() {
           LocalURL: newForward.LocalURL.trim(),
           Key: newForward.Key.trim(),
           Auth: auth,
+          AuthPassword: newForward.AuthPassword,
           Relay: !!newForward.Relay,
           Enabled: !!newForward.Enabled
         })
       )
-      .then(() => {
+      .then((created) => {
         closeAdd()
-        alert.success(`Forward ${name} added — waiting for its public URL`)
+        if (created?.StartupError) {
+          alert.error(
+            `Forward ${name} was added, but the tunnel did not connect`,
+            created.StartupError
+          )
+        } else if (created?.Status?.PublicURL) {
+          alert.success(`Forward ${name} is live`)
+        } else {
+          alert.success(`Forward ${name} added — waiting for its public URL`)
+        }
         return refresh(false)
       })
       .catch((err) => {
@@ -715,7 +871,7 @@ export default function Plugin() {
                 setNewForward({ ...newForward, AuthPassword: v })
               }
               placeholder="Enter a strong password"
-              helper="Hashed in this browser before it is saved; the password is never sent or stored"
+              helper="Hashed for tunwg and stored in the router's protected plugin config so you can reveal it later"
               error={authPasswordError}
               secureTextEntry
             />

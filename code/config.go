@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -27,12 +28,13 @@ const DefaultAPIDomain = "l.tunwg.com"
 // Forward is one public tunnel: a tunwg child process forwarding a public
 // HTTPS URL to a local (LAN) http(s) service.
 type Forward struct {
-	Name     string
-	LocalURL string // --forward target, e.g. http://192.168.2.50:8123
-	Key      string `json:",omitempty"` // TUNWG_KEY name (stable subdomain); defaults to Name. Secret-adjacent: never echoed back.
-	Auth     string `json:",omitempty"` // optional --limit "user:bcrypt-hash" basic auth. Never echoed back.
-	Relay    bool   // TUNWG_RELAY=true (tunnel WireGuard over HTTPS when UDP is blocked)
-	Enabled  bool
+	Name         string
+	LocalURL     string // --forward target, e.g. http://192.168.2.50:8123
+	Key          string `json:",omitempty"` // TUNWG_KEY name (stable subdomain); defaults to Name. Secret-adjacent: never echoed back.
+	Auth         string `json:",omitempty"` // optional --limit "user:bcrypt-hash" basic auth. Never echoed back.
+	AuthPassword string `json:",omitempty"` // plaintext basic-auth password, stored so an administrator can reveal it later.
+	Relay        bool   // TUNWG_RELAY=true (tunnel WireGuard over HTTPS when UDP is blocked)
+	Enabled      bool
 }
 
 // Config is persisted at /configs/spr-tunwg/config.json (0600).
@@ -189,7 +191,19 @@ func validateForward(f Forward) error {
 	if err := validateKey(f.Key); err != nil {
 		return err
 	}
-	return validateAuth(f.Auth)
+	if err := validateAuth(f.Auth); err != nil {
+		return err
+	}
+	if f.AuthPassword != "" && f.Auth == "" {
+		return fmt.Errorf("AuthPassword requires basic auth")
+	}
+	if len([]byte(f.AuthPassword)) > 72 {
+		return fmt.Errorf("AuthPassword must be at most 72 UTF-8 bytes")
+	}
+	if strings.ContainsRune(f.AuthPassword, '\x00') {
+		return fmt.Errorf("AuthPassword must not contain a NUL character")
+	}
+	return nil
 }
 
 func loadConfig() error {

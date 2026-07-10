@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 var (
@@ -19,9 +20,9 @@ var (
 
 var gManager *Manager
 
-// ForwardView is the redacted API representation of a forward: the Key
-// (TUNWG_KEY) and Auth secrets are never echoed back, only whether they are
-// configured.
+// ForwardView is the list representation of a forward. Key, the bcrypt Auth
+// value and the recoverable password are omitted; credentials are returned
+// only by the explicit per-forward credentials endpoint.
 type ForwardView struct {
 	Name           string
 	LocalURL       string
@@ -41,6 +42,21 @@ func forwardView(f Forward, st ForwardStatus) ForwardView {
 		Relay:          f.Relay,
 		Enabled:        f.Enabled,
 		Status:         st,
+	}
+}
+
+type forwardCredentialsView struct {
+	Username          string
+	Password          string `json:",omitempty"`
+	PasswordAvailable bool
+}
+
+func credentialsView(f Forward) forwardCredentialsView {
+	username, _, _ := cutAuth(f.Auth)
+	return forwardCredentialsView{
+		Username:          username,
+		Password:          f.AuthPassword,
+		PasswordAvailable: f.AuthPassword != "",
 	}
 }
 
@@ -81,7 +97,8 @@ func handleGetStatus(w http.ResponseWriter, r *http.Request) {
 		if f.Enabled {
 			view.ForwardsEnabled++
 		}
-		if gManager.Status(f.Name).Running {
+		st := gManager.Status(f.Name)
+		if st.Running && st.PublicURL != "" {
 			view.ForwardsRunning++
 		}
 	}
@@ -100,6 +117,19 @@ func handleGetForwards(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, views)
 }
 
+// startupWait is how long POST /forwards waits for a newly enabled forward
+// to either announce its public URL or fail with a diagnosable error.
+const startupWait = 10 * time.Second
+
+// addForwardResponse is the POST /forwards reply: the created forward, plus
+// a diagnosed "waiting for tunnel" message when the tunnel did not come up
+// within startupWait. The forward stays configured either way (the
+// supervisor keeps retrying with backoff).
+type addForwardResponse struct {
+	ForwardView
+	StartupError string `json:",omitempty"`
+}
+
 func handleAddForward(w http.ResponseWriter, r *http.Request) {
 	f := Forward{}
 	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
@@ -112,10 +142,9 @@ func handleAddForward(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configMtx.Lock()
-	defer configMtx.Unlock()
-
 	for _, existing := range gConfig.Forwards {
 		if existing.Name == f.Name {
+			configMtx.Unlock()
 			http.Error(w, "a forward with that name already exists", http.StatusConflict)
 			return
 		}
@@ -123,13 +152,75 @@ func handleAddForward(w http.ResponseWriter, r *http.Request) {
 	gConfig.Forwards = append(gConfig.Forwards, f)
 	if err := writeConfigLocked(); err != nil {
 		gConfig.Forwards = gConfig.Forwards[:len(gConfig.Forwards)-1]
+		configMtx.Unlock()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if f.Enabled {
 		gManager.Start(f, gConfig.APIDomain, gConfig.AuthToken)
 	}
-	writeJSON(w, forwardView(f, gManager.Status(f.Name)))
+	configMtx.Unlock()
+
+	resp := addForwardResponse{}
+	if f.Enabled {
+		// Wait (without holding configMtx) so a startup failure comes back
+		// with its diagnosis instead of a bare exit status.
+		st, err := gManager.WaitStartup(f.Name, startupWait)
+		resp.ForwardView = forwardView(f, st)
+		if err != nil {
+			log.Printf("[%s] %v", f.Name, err)
+			resp.StartupError = err.Error()
+		}
+	} else {
+		resp.ForwardView = forwardView(f, gManager.Status(f.Name))
+	}
+	writeJSON(w, resp)
+}
+
+// handleGetForwardLog returns the buffered output of a forward's current or
+// most recent tunwg run as {"Lines": [...]}.
+func handleGetForwardLog(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	configMtx.Lock()
+	found := false
+	for _, f := range gConfig.Forwards {
+		if f.Name == name {
+			found = true
+			break
+		}
+	}
+	configMtx.Unlock()
+
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, struct{ Lines []string }{Lines: gManager.Log(name)})
+}
+
+// handleGetForwardCredentials reveals the credentials only after an explicit
+// request from the administrator UI. Older forwards have a recoverable
+// username (from Auth) but no password because previous versions stored only
+// the bcrypt hash.
+func handleGetForwardCredentials(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	configMtx.Lock()
+	defer configMtx.Unlock()
+	for _, f := range gConfig.Forwards {
+		if f.Name != name {
+			continue
+		}
+		if f.Auth == "" {
+			http.Error(w, "basic auth is not configured", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, credentialsView(f))
+		return
+	}
+	http.Error(w, "not found", http.StatusNotFound)
 }
 
 func handleDeleteForward(w http.ResponseWriter, r *http.Request) {
@@ -300,6 +391,8 @@ func main() {
 	mux.HandleFunc("GET /topology", handleGetTopology)
 	mux.HandleFunc("GET /forwards", handleGetForwards)
 	mux.HandleFunc("POST /forwards", handleAddForward)
+	mux.HandleFunc("GET /forwards/{name}/log", handleGetForwardLog)
+	mux.HandleFunc("GET /forwards/{name}/credentials", handleGetForwardCredentials)
 	mux.HandleFunc("DELETE /forwards/{name}", handleDeleteForward)
 	mux.HandleFunc("POST /forwards/{name}/toggle", handleToggleForward)
 	mux.HandleFunc("GET /config", handleGetConfig)

@@ -4,10 +4,13 @@ import (
 	"testing"
 )
 
-// fakeStatus returns a status lookup func backed by a map of running names.
+// fakeStatus returns a status lookup func backed by a map of connected names.
 func fakeStatus(running map[string]bool) func(string) ForwardStatus {
 	return func(name string) ForwardStatus {
-		return ForwardStatus{Running: running[name]}
+		if running[name] {
+			return ForwardStatus{Running: true, PublicURL: "https://example.l.tunwg.com"}
+		}
+		return ForwardStatus{}
 	}
 }
 

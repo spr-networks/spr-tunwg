@@ -3,11 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,19 +28,26 @@ const (
 	stopWaitLimit = 10 * time.Second
 )
 
-// ForwardStatus is the runtime state of one tunwg child process.
+// ForwardStatus is the runtime state of one tunwg child process. The Last*
+// fields describe the most recent exit and remain visible across retries;
+// they are cleared once a fresh child announces its public URL.
 type ForwardStatus struct {
-	Running   bool
-	PID       int    `json:",omitempty"`
-	PublicURL string `json:",omitempty"`
-	LastError string `json:",omitempty"`
-	Restarts  int
-	StartedAt time.Time `json:",omitzero"`
+	Running         bool
+	PID             int      `json:",omitempty"`
+	PublicURL       string   `json:",omitempty"`
+	LastError       string   `json:",omitempty"`
+	LastExitCode    int      `json:",omitempty"` // -1 when the child died without an exit code
+	LastErrorReason string   `json:",omitempty"` // short classification from diagnose()
+	LastErrorHint   string   `json:",omitempty"` // what to check, from diagnose()
+	LastLog         []string `json:",omitempty"` // sanitized tail of the child's output at exit
+	Restarts        int
+	StartedAt       time.Time `json:",omitzero"`
 }
 
 type proc struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	ring   *logRing
 
 	mu     sync.Mutex
 	status ForwardStatus
@@ -105,7 +115,7 @@ func (m *Manager) Start(f Forward, apiDomain, authToken string) {
 	m.Stop(f.Name)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &proc{cancel: cancel, done: make(chan struct{})}
+	p := &proc{cancel: cancel, done: make(chan struct{}), ring: newLogRing()}
 
 	m.mu.Lock()
 	m.procs[f.Name] = p
@@ -156,6 +166,54 @@ func (m *Manager) Status(name string) ForwardStatus {
 	return p.snapshot()
 }
 
+// Log returns the buffered output (oldest first) of the forward's current or
+// most recent tunwg run. Empty when the forward is not supervised.
+func (m *Manager) Log(name string) []string {
+	m.mu.Lock()
+	p := m.procs[name]
+	m.mu.Unlock()
+	if p == nil {
+		return []string{}
+	}
+	return p.ring.Lines()
+}
+
+// startupError composes the "waiting for tunnel" failure message from a
+// diagnosed exit: reason, hint and the last few log lines instead of a bare
+// exit status.
+func startupError(st ForwardStatus) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "waiting for tunnel: %s", st.LastErrorReason)
+	if st.LastErrorHint != "" {
+		fmt.Fprintf(&b, " — %s", st.LastErrorHint)
+	}
+	if tail := st.LastLog; len(tail) > 0 {
+		if len(tail) > 5 {
+			tail = tail[len(tail)-5:]
+		}
+		fmt.Fprintf(&b, "\nlast log lines:\n%s", strings.Join(tail, "\n"))
+	}
+	return errors.New(b.String())
+}
+
+// WaitStartup blocks until the forward announces its public URL, its child
+// exits (returning a diagnosed error), or the timeout elapses.
+func (m *Manager) WaitStartup(name string, timeout time.Duration) (ForwardStatus, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		st := m.Status(name)
+		switch {
+		case st.PublicURL != "":
+			return st, nil
+		case !st.Running && st.LastErrorReason != "":
+			return st, startupError(st)
+		case time.Now().After(deadline):
+			return st, fmt.Errorf("waiting for tunnel: no public URL after %v — tunwg is still trying to connect; check this forward's log", timeout)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func (m *Manager) supervise(ctx context.Context, f Forward, apiDomain, authToken string, p *proc) {
 	defer close(p.done)
 	backoff := backoffMin
@@ -171,14 +229,33 @@ func (m *Manager) supervise(ctx context.Context, f Forward, apiDomain, authToken
 			return
 		}
 		msg := "tunwg exited"
+		exitCode := 0
 		if err != nil {
 			msg = err.Error()
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
 		}
+		// Persist the tail of the child's output and classify the failure
+		// so the API and UI can explain it (not just "exit status 1").
+		// The exec error text joins the tail for classification only: it
+		// carries the pattern when the child never produced output (e.g.
+		// fork/exec permission errors).
+		tail := p.ring.Tail(logTailLines)
+		reason, hint := diagnose(strings.Join(append(append([]string{}, tail...), msg), "\n"), exitCode)
 		restarts++
 		p.mu.Lock()
 		p.status.Running = false
 		p.status.PID = 0
+		p.status.PublicURL = ""
 		p.status.LastError = msg
+		p.status.LastExitCode = exitCode
+		p.status.LastErrorReason = reason
+		p.status.LastErrorHint = hint
+		p.status.LastLog = tail
 		p.status.Restarts = restarts
 		p.mu.Unlock()
 
@@ -190,7 +267,7 @@ func (m *Manager) supervise(ctx context.Context, f Forward, apiDomain, authToken
 				backoff = backoffMax
 			}
 		}
-		log.Printf("[%s] tunwg exited (%s), restarting in %v", f.Name, msg, backoff)
+		log.Printf("[%s] tunwg exited (%s: %s), restarting in %v", f.Name, msg, reason, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -216,6 +293,10 @@ func (m *Manager) runOnce(ctx context.Context, f Forward, apiDomain, authToken s
 		return nil
 	}
 
+	// A fresh run owns the ring buffer: it always describes the current or
+	// most recent child, not a mix of attempts.
+	p.ring.Reset()
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -232,7 +313,6 @@ func (m *Manager) runOnce(ctx context.Context, f Forward, apiDomain, authToken s
 	p.status.Running = true
 	p.status.PID = cmd.Process.Pid
 	p.status.StartedAt = time.Now()
-	p.status.LastError = ""
 	p.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -243,17 +323,24 @@ func (m *Manager) runOnce(ctx context.Context, f Forward, apiDomain, authToken s
 	return cmd.Wait()
 }
 
-// scanOutput relays tunwg's log lines to stdout and captures the assigned
-// public URL from the announcement line.
+// scanOutput relays tunwg's log lines to stdout, records them in the
+// per-forward ring buffer, and captures the assigned public URL from the
+// announcement line.
 func (p *proc) scanOutput(name string, r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		log.Printf("[%s] %s", name, line)
+		p.ring.Append(line)
 		if u := parsePublicURL(line); u != "" {
 			p.mu.Lock()
 			p.status.PublicURL = u
+			p.status.LastError = ""
+			p.status.LastExitCode = 0
+			p.status.LastErrorReason = ""
+			p.status.LastErrorHint = ""
+			p.status.LastLog = nil
 			p.mu.Unlock()
 		}
 	}

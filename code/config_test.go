@@ -167,17 +167,37 @@ func TestTunwgArgsAndEnv(t *testing.T) {
 
 func TestForwardViewRedactsSecrets(t *testing.T) {
 	f := Forward{Name: "ha", LocalURL: "http://192.168.2.50:8123",
-		Key: "supersecret", Auth: "user:hash", Enabled: true}
+		Key: "supersecret", Auth: "user:hash", AuthPassword: "correct horse", Enabled: true}
 	data, err := json.Marshal(forwardView(f, ForwardStatus{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(data)
-	if strings.Contains(s, "supersecret") || strings.Contains(s, "user:hash") {
+	if strings.Contains(s, "supersecret") || strings.Contains(s, "user:hash") ||
+		strings.Contains(s, "correct horse") {
 		t.Errorf("secrets leaked in view: %s", s)
 	}
 	if !strings.Contains(s, `"KeyConfigured":true`) || !strings.Contains(s, `"AuthConfigured":true`) {
 		t.Errorf("expected configured flags in view: %s", s)
+	}
+}
+
+func TestCredentialsViewRevealsSavedCredentials(t *testing.T) {
+	f := Forward{Auth: "alice:$2y$10$hash", AuthPassword: "correct horse"}
+	data, err := json.Marshal(credentialsView(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{`"Username":"alice"`, `"Password":"correct horse"`, `"PasswordAvailable":true`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("credentials response %s does not contain %s", s, want)
+		}
+	}
+
+	legacy := credentialsView(Forward{Auth: "bob:$2y$10$hash"})
+	if legacy.Username != "bob" || legacy.Password != "" || legacy.PasswordAvailable {
+		t.Errorf("unexpected legacy credentials view: %+v", legacy)
 	}
 }
 
@@ -195,7 +215,7 @@ func TestConfigWriteLoadRoundtrip(t *testing.T) {
 		APIDomain: "tunnel.example.org",
 		AuthToken: "tok",
 		Forwards: []Forward{
-			{Name: "ha", LocalURL: "http://192.168.2.50:8123", Key: "k", Enabled: true},
+			{Name: "ha", LocalURL: "http://192.168.2.50:8123", Key: "k", Auth: "alice:hash", AuthPassword: "secret", Enabled: true},
 		},
 	}
 	err := writeConfigLocked()
@@ -222,7 +242,7 @@ func TestConfigWriteLoadRoundtrip(t *testing.T) {
 	defer configMtx.Unlock()
 	if gConfig.APIDomain != "tunnel.example.org" || gConfig.AuthToken != "tok" ||
 		len(gConfig.Forwards) != 1 || gConfig.Forwards[0].Name != "ha" ||
-		gConfig.Forwards[0].Key != "k" {
+		gConfig.Forwards[0].Key != "k" || gConfig.Forwards[0].AuthPassword != "secret" {
 		t.Errorf("roundtrip mismatch: %+v", gConfig)
 	}
 }
@@ -251,6 +271,8 @@ func TestValidateForward(t *testing.T) {
 		{Name: "ha", LocalURL: "http://localhost:8123"},
 		{Name: "ha", LocalURL: "http://192.168.2.50:8123", Key: "../escape"},
 		{Name: "ha", LocalURL: "http://192.168.2.50:8123", Auth: "nocolon"},
+		{Name: "ha", LocalURL: "http://192.168.2.50:8123", AuthPassword: "orphan"},
+		{Name: "ha", LocalURL: "http://192.168.2.50:8123", Auth: "alice:hash", AuthPassword: strings.Repeat("p", 73)},
 	}
 	for _, f := range bad {
 		if err := validateForward(f); err == nil {

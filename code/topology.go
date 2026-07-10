@@ -45,9 +45,9 @@ func forwardHost(raw string) string {
 //	service (per forward) --lan--> root --tunnel--> relay
 //
 // The root anchor represents this plugin (transport: userspace WireGuard).
-// Each forward contributes one service node for its LAN target, Online when
-// its tunwg child process is running. A single relay node represents the
-// tunwg relay domain, Online when any forward's tunnel is up. With no
+// Each forward contributes one service node for its LAN target, Online after
+// its tunwg child process announces a public URL. A single relay node
+// represents the tunwg relay domain, Online when any forward's tunnel is up. With no
 // forwards configured the graph is just the root anchor.
 //
 // status is injected so tests can use a fake data source.
@@ -63,7 +63,8 @@ func buildTopology(apiDomain string, forwards []Forward, status func(name string
 	services := make([]TopoNode, 0, len(forwards))
 	anyUp := false
 	for _, f := range forwards {
-		online := status(f.Name).Running
+		st := status(f.Name)
+		online := st.Running && st.PublicURL != ""
 		if online {
 			anyUp = true
 		}

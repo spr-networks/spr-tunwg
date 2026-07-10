@@ -43,7 +43,8 @@ spr-tunwg** (iframe).
   networks that block UDP
 - Optional self-hosted tunwg server (`TUNWG_API` + `TUNWG_AUTH`)
 - Live status: per-forward running state, public URL with copy button,
-  restart counter and last error
+  restart counter, diagnosed startup failures, remediation hints and a
+  bounded log tail
 - Automatic supervision: crashed tunnels restart with backoff
 - Contributes to SPR's topology view (`HasTopology`): each forward's LAN
   target and the tunwg relay appear as nodes in the router topology graph
@@ -74,8 +75,11 @@ appears in the forwards table — copy it with the copy button. Toggle a
 forward off to stop publishing it; delete it to remove it entirely.
 
 To require credentials, enter a basic auth username and password while adding
-the forward. The frontend hashes the password with bcrypt before submitting the
-forward; the plaintext password is never sent to or stored by the backend.
+the forward. The frontend hashes the password with bcrypt for tunwg. It also
+saves the plaintext password in the plugin's mode-0600 configuration so an SPR
+administrator can use **Show credentials** on the forward later. Forwards made
+by older plugin versions still reveal their username, but their password cannot
+be recovered from the previously stored bcrypt hash.
 
 ## API
 
@@ -86,9 +90,11 @@ All endpoints are served on the plugin unix socket
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/status` | Plugin status: tunwg version, relay domain, forward counts |
-| GET | `/topology` | Topology graph `{Nodes, Edges}` merged into SPR's topology view: root anchor (WireGuard transport), one `service` node per forward's LAN target (online = tunnel process running), one `relay` node for the relay domain (online = any tunnel up); edges service→root (`lan`) and root→relay (`tunnel`) |
-| GET | `/forwards` | List forwards with running state and assigned public URL (secrets redacted) |
-| POST | `/forwards` | Add a forward `{Name, LocalURL, Key?, Auth?, Relay?, Enabled}` |
+| GET | `/topology` | Topology graph `{Nodes, Edges}` merged into SPR's topology view: root anchor (WireGuard transport), one `service` node per forward's LAN target (online after a public URL is announced), one `relay` node for the relay domain (online = any tunnel up); edges service→root (`lan`) and root→relay (`tunnel`) |
+| GET | `/forwards` | List forwards with running state, assigned public URL and diagnosed last failure (credentials redacted) |
+| POST | `/forwards` | Add a forward `{Name, LocalURL, Key?, Auth?, AuthPassword?, Relay?, Enabled}`; enabled forwards return `StartupError` when the initial connection fails |
+| GET | `/forwards/{name}/credentials` | Explicitly reveal the saved basic-auth username/password (`Cache-Control: no-store`); legacy forwards have no recoverable password |
+| GET | `/forwards/{name}/log` | Read the bounded, sanitized output buffer for the current or most recent tunwg run |
 | DELETE | `/forwards/{name}` | Stop and remove a forward |
 | POST | `/forwards/{name}/toggle` | Enable/disable a forward |
 | GET | `/config` | Relay settings (`APIDomain`, `AuthTokenConfigured`) |
@@ -107,6 +113,7 @@ All endpoints are served on the plugin unix socket
 | `Forwards[].LocalURL` | Target, `http(s)://<private-LAN-IP>[:port]`. Loopback, link-local and public addresses are rejected server-side; hostnames are rejected (use the device IP) |
 | `Forwards[].Key` | Optional `TUNWG_KEY` name for the WireGuard key (defaults to the forward name); determines the stable public subdomain. Redacted in API reads |
 | `Forwards[].Auth` | Optional `user:hash` (htpasswd format) for tunwg `--limit` basic auth. Redacted in API reads |
+| `Forwards[].AuthPassword` | Optional recoverable basic-auth password used by **Show credentials**. Stored in the mode-0600 config and returned only by the explicit credentials endpoint |
 | `Forwards[].Relay` | `true` = tunnel WireGuard over HTTPS (`TUNWG_RELAY`), for UDP-hostile networks |
 | `Forwards[].Enabled` | Whether the tunnel runs |
 
@@ -129,10 +136,11 @@ re-created forward with the same key name gets the same public URL.
   `lan` (to reach the LAN services being forwarded) and `wan` (outbound
   tunnel traffic to the relay). No `api` policy: the backend never calls the
   SPR API.
-- **Secrets**: `config.json` is written 0600; `TUNWG_KEY` names, basic-auth
-  hashes and the relay auth token are never echoed back by the API (only
-  `KeyConfigured` / `AuthConfigured` / `AuthTokenConfigured` booleans).
-  WireGuard private keys are 0400.
+- **Secrets**: `config.json` is written 0600. `TUNWG_KEY` names, basic-auth
+  hashes, saved basic-auth passwords and the relay auth token are omitted from
+  normal list/config responses. An authenticated SPR administrator can reveal
+  a forward's saved username/password through the explicit no-store
+  credentials endpoint. WireGuard private keys are 0400.
 - **Input validation**: all forward fields are validated server-side
   (allow-list character sets; targets must be private-range IP literals with
   sane ports). tunwg is always spawned with an argv array and a minimal
