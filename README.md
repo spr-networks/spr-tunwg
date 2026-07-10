@@ -1,5 +1,7 @@
 # spr-tunwg
 
+<img width="850" alt="spr-tunwg UI preview" src="docs/screenshot.png" />
+
 Expose local services on your SPR network at public HTTPS URLs, using
 [tunwg](https://github.com/ntnj/tunwg) — end-to-end encrypted tunnels over
 outbound userspace WireGuard, with automatic SSL certificates.
