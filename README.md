@@ -43,6 +43,8 @@ spr-tunwg** (iframe).
 - Live status: per-forward running state, public URL with copy button,
   restart counter and last error
 - Automatic supervision: crashed tunnels restart with backoff
+- Contributes to SPR's topology view (`HasTopology`): each forward's LAN
+  target and the tunwg relay appear as nodes in the router topology graph
 
 ## Install (UI)
 
@@ -86,6 +88,7 @@ All endpoints are served on the plugin unix socket
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/status` | Plugin status: tunwg version, relay domain, forward counts |
+| GET | `/topology` | Topology graph `{Nodes, Edges}` merged into SPR's topology view: root anchor (WireGuard transport), one `service` node per forward's LAN target (online = tunnel process running), one `relay` node for the relay domain (online = any tunnel up); edges service→root (`lan`) and root→relay (`tunnel`) |
 | GET | `/forwards` | List forwards with running state and assigned public URL (secrets redacted) |
 | POST | `/forwards` | Add a forward `{Name, LocalURL, Key?, Auth?, Relay?, Enabled}` |
 | DELETE | `/forwards/{name}` | Stop and remove a forward |
