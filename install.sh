@@ -37,6 +37,6 @@ API=127.0.0.1
 curl "http://${API}/firewall/custom_interface" \
 -H "Authorization: Bearer ${SPR_API_TOKEN}" \
 -X 'PUT' \
---data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"spr-tunwg\",\"Policies\":[\"lan\",\"wan\"]}"
+--data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"spr-tunwg\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}"
 
 docker compose restart

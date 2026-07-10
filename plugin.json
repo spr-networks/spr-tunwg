@@ -10,8 +10,8 @@
   "InstallTokenPath": "/configs/plugins/spr-tunwg/api-token",
   "NetworkCapabilities": {
     "Interface": "spr-tunwg",
-    "Policies": ["lan", "wan"],
-    "Groups": []
+    "Policies": ["wan"],
+    "Groups": ["tunwg"]
   },
   "Enabled": true
 }
