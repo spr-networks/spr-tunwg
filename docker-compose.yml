@@ -30,5 +30,6 @@ services:
 # NetworkCapabilities.Interface and install.sh's custom_interface call.
 networks:
   tunwgnet:
+    name: spr-tunwg
     driver_opts:
       com.docker.network.bridge.name: spr-tunwg

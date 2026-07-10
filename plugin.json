@@ -4,6 +4,7 @@
   "UnixPath": "/state/plugins/spr-tunwg/socket",
   "URI": "spr-tunwg",
   "HasUI": true,
+  "Icon": "Cable",
   "SandboxedUI": false,
   "InstallTokenPath": "/configs/plugins/spr-tunwg/api-token",
   "NetworkCapabilities": {
