@@ -23,6 +23,11 @@ import {
   VStack,
   Text
 } from '@spr-networks/plugin-ui'
+import {
+  createHtpasswdEntry,
+  validateBasicAuthPassword,
+  validateBasicAuthUsername
+} from './basicAuth'
 
 const PLUGIN_BASE = `/plugins/${api.pluginURI() || 'spr-tunwg'}`
 
@@ -42,7 +47,8 @@ const emptyForward = {
   Name: '',
   LocalURL: '',
   Key: '',
-  Auth: '',
+  AuthUsername: '',
+  AuthPassword: '',
   Relay: false,
   Enabled: true
 }
@@ -119,15 +125,6 @@ const validateKeyField = (key) => {
   if (!key) return null
   if (!KEY_RE.test(key)) {
     return "Use 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit"
-  }
-  return null
-}
-
-const validateAuthField = (auth) => {
-  if (!auth) return null
-  const idx = auth.indexOf(':')
-  if (idx < 1 || idx === auth.length - 1) {
-    return 'Use htpasswd format user:hash — generate one with: htpasswd -nbB user pass'
   }
   return null
 }
@@ -308,6 +305,7 @@ export default function Plugin() {
   }, [refresh])
 
   const openAdd = () => {
+    setNewForward(emptyForward)
     setAddStep('form')
     setShowAdd(true)
   }
@@ -315,24 +313,29 @@ export default function Plugin() {
   const closeAdd = () => {
     setShowAdd(false)
     setAddStep('form')
+    setNewForward(emptyForward)
   }
 
   const submitAdd = () => {
-    const body = {
-      Name: newForward.Name.trim(),
-      LocalURL: newForward.LocalURL.trim(),
-      Key: newForward.Key.trim(),
-      Auth: newForward.Auth.trim(),
-      Relay: !!newForward.Relay,
-      Enabled: !!newForward.Enabled
-    }
+    const name = newForward.Name.trim()
     setAdding(true)
-    api
-      .post(`${PLUGIN_BASE}/forwards`, body)
+    createHtpasswdEntry(
+      newForward.AuthUsername,
+      newForward.AuthPassword
+    )
+      .then((auth) =>
+        api.post(`${PLUGIN_BASE}/forwards`, {
+          Name: name,
+          LocalURL: newForward.LocalURL.trim(),
+          Key: newForward.Key.trim(),
+          Auth: auth,
+          Relay: !!newForward.Relay,
+          Enabled: !!newForward.Enabled
+        })
+      )
       .then(() => {
         closeAdd()
-        setNewForward(emptyForward)
-        alert.success(`Forward ${body.Name} added — waiting for its public URL`)
+        alert.success(`Forward ${name} added — waiting for its public URL`)
         return refresh(false)
       })
       .catch((err) => {
@@ -469,9 +472,24 @@ export default function Plugin() {
   const nameError = validateNameField(draftName, forwards)
   const urlError = validateLocalURLField(draftURL)
   const keyError = validateKeyField(newForward.Key.trim())
-  const authError = validateAuthField(newForward.Auth.trim())
+  const authUsername = newForward.AuthUsername.trim()
+  const authPassword = newForward.AuthPassword
+  const authUsernameError = validateBasicAuthUsername(
+    authUsername,
+    authPassword
+  )
+  const authPasswordError = validateBasicAuthPassword(
+    authUsername,
+    authPassword
+  )
   const formValid =
-    !!draftName && !!draftURL && !nameError && !urlError && !keyError && !authError
+    !!draftName &&
+    !!draftURL &&
+    !nameError &&
+    !urlError &&
+    !keyError &&
+    !authUsernameError &&
+    !authPasswordError
 
   const relayDomain = status?.APIDomain || 'l.tunwg.com'
   const relayDirty =
@@ -681,12 +699,24 @@ export default function Plugin() {
               secureTextEntry
             />
             <TextField
-              label="Basic auth (optional)"
-              value={newForward.Auth}
-              onChangeText={(v) => setNewForward({ ...newForward, Auth: v })}
-              placeholder="user:$2y$05$... (htpasswd -nbB user pass)"
-              helper="Strongly recommended: require credentials before the tunnel reaches your service"
-              error={authError}
+              label="Basic auth username (optional)"
+              value={newForward.AuthUsername}
+              onChangeText={(v) =>
+                setNewForward({ ...newForward, AuthUsername: v })
+              }
+              placeholder="alice"
+              helper="Set a username and password to protect this public forward"
+              error={authUsernameError}
+            />
+            <TextField
+              label="Basic auth password"
+              value={newForward.AuthPassword}
+              onChangeText={(v) =>
+                setNewForward({ ...newForward, AuthPassword: v })
+              }
+              placeholder="Enter a strong password"
+              helper="Hashed in this browser before it is saved; the password is never sent or stored"
+              error={authPasswordError}
               secureTextEntry
             />
             <HStack
@@ -740,7 +770,7 @@ export default function Plugin() {
             </Text>
             <Text size="xs" color="$muted500" lineHeight="$sm">
               {`Anyone with the URL can reach the service through ${relayDomain}, and the new hostname will appear in public certificate transparency logs.` +
-                (newForward.Auth.trim()
+                (authUsername && authPassword
                   ? ' Visitors must pass the basic auth you configured.'
                   : ' No basic auth is set, so no credentials are required.')}
             </Text>

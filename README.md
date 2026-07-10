@@ -71,13 +71,9 @@ as `http://192.168.2.50:8123`. Once the tunnel connects, the public URL
 appears in the forwards table — copy it with the copy button. Toggle a
 forward off to stop publishing it; delete it to remove it entirely.
 
-To require credentials, generate an htpasswd entry and paste it in the
-Basic Auth field:
-
-```sh
-htpasswd -nbB myuser mypassword
-# -> myuser:$2y$05$...
-```
+To require credentials, enter a basic auth username and password while adding
+the forward. The frontend hashes the password with bcrypt before submitting the
+forward; the plaintext password is never sent to or stored by the backend.
 
 ## API
 
