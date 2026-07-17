@@ -1,6 +1,6 @@
 {
   "Name": "spr-tunwg",
-  "ComposeFilePath": "plugins/user/spr-tunwg/docker-compose.yml",
+  "ComposeFilePath": "plugins/user/spr-tunwg/docker-compose-krun.yml",
   "UnixPath": "/state/plugins/spr-tunwg/socket",
   "URI": "spr-tunwg",
   "HasUI": true,
@@ -9,7 +9,8 @@
   "SandboxedUI": false,
   "InstallTokenPath": "/configs/plugins/spr-tunwg/api-token",
   "NetworkCapabilities": {
-    "Interface": "spr-tunwg",
+    "Interface": "ktunwg0",
+    "DeviceMAC": "02:53:50:52:4b:11",
     "Policies": ["wan"],
     "Groups": ["tunwg"]
   },

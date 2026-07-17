@@ -29,14 +29,29 @@ if [ ! -f "$SUPERDIR/configs/plugins/spr-tunwg/config.json" ]; then
   chmod 600 "$SUPERDIR/configs/plugins/spr-tunwg/config.json"
 fi
 
-docker compose build
-docker compose up -d
-CONTAINER_IP=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "spr-tunwg")
+KRUN_MAC="02:53:50:52:4b:11"
+KRUN_TAP="ktunwg0"
+curl --fail-with-body --silent --show-error "http://127.0.0.1/device?identity=${KRUN_MAC}" \
+  -H "Authorization: Bearer ${SPR_API_TOKEN}" -H "Content-Type: application/json" \
+  -X PUT --data-raw "{\"MAC\":\"${KRUN_MAC}\",\"Name\":\"spr-tunwg\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}" >/dev/null
+if ! sudo nft get element inet filter dhcp_access "{ \"${KRUN_TAP}\" . ${KRUN_MAC} }" >/dev/null 2>&1; then
+  sudo nft add element inet filter dhcp_access "{ \"${KRUN_TAP}\" . ${KRUN_MAC} : accept }"
+fi
+
+docker compose -f docker-compose-krun.yml build
+docker compose -f docker-compose-krun.yml up -d
+CONTAINER_IP=
+for _ in $(seq 1 30); do
+  CONTAINER_IP="$(jq -r --arg mac "$KRUN_MAC" '.[$mac].RecentIP // empty' "$SUPERDIR/state/public/devices-public.json")"
+  [ -n "$CONTAINER_IP" ] && break
+  sleep 1
+done
+[ -n "$CONTAINER_IP" ] || { echo "spr-tunwg did not obtain an SPR DHCP lease" >&2; exit 1; }
 API=127.0.0.1
 
 curl "http://${API}/firewall/custom_interface" \
 -H "Authorization: Bearer ${SPR_API_TOKEN}" \
 -X 'PUT' \
---data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"spr-tunwg\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}"
+--data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"${KRUN_TAP}\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}"
 
-docker compose restart
+docker compose -f docker-compose-krun.yml restart
