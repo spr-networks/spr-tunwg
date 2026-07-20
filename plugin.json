@@ -1,6 +1,6 @@
 {
   "Name": "spr-tunwg",
-  "ComposeFilePath": "plugins/user/spr-tunwg/docker-compose-krun.yml",
+  "Runtime": "kvm",
   "UnixPath": "/state/plugins/spr-tunwg/socket",
   "URI": "spr-tunwg",
   "HasUI": true,
