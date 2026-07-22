@@ -1,7 +1,7 @@
 {
   "Name": "spr-tunwg",
   "Runtime": "kvm",
-  "UnixPath": "/state/plugins/spr-tunwg/socket",
+  "UnixPath": "/state/plugins/spr-tunwg/socket.sock",
   "URI": "spr-tunwg",
   "HasUI": true,
   "Icon": "Cable",

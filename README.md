@@ -85,7 +85,7 @@ be recovered from the previously stored bcrypt hash.
 ## API
 
 All endpoints are served on the plugin unix socket
-(`/state/plugins/spr-tunwg/socket`) and proxied by SPR under
+(`/state/plugins/spr-tunwg/socket.sock`) and proxied by SPR under
 `/plugins/spr-tunwg/`.
 
 | Method | Path | Description |
