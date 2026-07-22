@@ -3,6 +3,7 @@ ARG ALPINE_REF=alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a
 ARG UBUNTU_REF=ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 ARG NODE_REF=node:18@sha256:c6ae79e38498325db67193d391e6ec1d224d96c693a8a4d943498556716d3783
 ARG CONTAINER_TEMPLATE_REF=ghcr.io/spr-networks/container_template@sha256:869ada7b121e9a0c552674042d32e801da3c4d04145638d9e722918c6377e65f
+ARG SPR_KRUN_PLUGIN_REF=ghcr.io/spr-networks/spr-krun-plugin:latest
 ARG SOURCE_DATE_EPOCH
 
 FROM ${ALPINE_REF} AS cacerts
@@ -54,7 +55,7 @@ RUN --mount=type=tmpfs,target=/root/.cache \
     --mount=type=tmpfs,target=/app/node_modules \
     yarn install --frozen-lockfile --network-timeout 86400000 && yarn run bundle
 
-FROM ${CONTAINER_TEMPLATE_REF}
+FROM ${SPR_KRUN_PLUGIN_REF}
 ARG TUNWG_VERSION=v25.11.15+bbd247b
 ENV TUNWG_VERSION=${TUNWG_VERSION}
 COPY scripts /scripts/
@@ -62,4 +63,4 @@ COPY --from=builder /tunwg /usr/local/bin/tunwg
 COPY --from=builder /tunwg_plugin /
 COPY --from=builder-ui /app/build/ /ui/
 
-ENTRYPOINT ["/scripts/startup.sh"]
+CMD ["/scripts/startup.sh"]

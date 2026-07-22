@@ -1,14 +1,15 @@
 {
   "Name": "spr-tunwg",
-  "ComposeFilePath": "plugins/user/spr-tunwg/docker-compose.yml",
+  "Runtime": "kvm",
   "UnixPath": "/state/plugins/spr-tunwg/socket",
   "URI": "spr-tunwg",
   "HasUI": true,
   "Icon": "Cable",
   "HasTopology": true,
-  "SandboxedUI": false,
+  "SandboxedUI": true,
   "NetworkCapabilities": {
     "Interface": "spr-tunwg",
+    "DeviceMAC": "02:53:50:52:4b:11",
     "Policies": ["wan"],
     "Groups": ["tunwg"]
   },

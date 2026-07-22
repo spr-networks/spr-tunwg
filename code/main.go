@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	UNIX_PLUGIN_LISTENER = TEST_PREFIX + "/state/plugins/spr-tunwg/socket"
+	UNIX_PLUGIN_LISTENER = TEST_PREFIX + "/run/spr-krun-plugin/spr-tunwg.sock"
 	TunwgBin             = "/usr/local/bin/tunwg"
 	UIPath               = "/ui"
 )
