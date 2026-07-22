@@ -6,7 +6,7 @@
   "HasUI": true,
   "Icon": "Cable",
   "HasTopology": true,
-  "SandboxedUI": false,
+  "SandboxedUI": true,
   "NetworkCapabilities": {
     "Interface": "spr-tunwg",
     "DeviceMAC": "02:53:50:52:4b:11",
