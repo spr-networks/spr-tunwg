@@ -33,7 +33,7 @@ KRUN_MAC="02:53:50:52:4b:11"
 PLUGIN_INTERFACE="spr-tunwg"
 curl --fail-with-body --silent --show-error "http://127.0.0.1/device?identity=${KRUN_MAC}" \
   -H "Authorization: Bearer ${SPR_API_TOKEN}" -H "Content-Type: application/json" \
-  -X PUT --data-raw "{\"MAC\":\"${KRUN_MAC}\",\"Name\":\"spr-tunwg\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}" >/dev/null
+  -X PUT --data-raw "{\"MAC\":\"${KRUN_MAC}\",\"Name\":\"spr-tunwg\",\"Policies\":[\"wan\",\"dns\"],\"Groups\":[\"tunwg\"]}" >/dev/null
 if ! sudo nft get element inet filter dhcp_access "{ \"${PLUGIN_INTERFACE}\" . ${KRUN_MAC} }" >/dev/null 2>&1; then
   sudo nft add element inet filter dhcp_access "{ \"${PLUGIN_INTERFACE}\" . ${KRUN_MAC} : accept }"
 fi
@@ -52,6 +52,6 @@ API=127.0.0.1
 curl "http://${API}/firewall/custom_interface" \
 -H "Authorization: Bearer ${SPR_API_TOKEN}" \
 -X 'PUT' \
---data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"${PLUGIN_INTERFACE}\",\"Policies\":[\"wan\"],\"Groups\":[\"tunwg\"]}"
+--data-raw "{\"SrcIP\":\"${CONTAINER_IP}\",\"Interface\":\"${PLUGIN_INTERFACE}\",\"Policies\":[\"wan\",\"dns\"],\"Groups\":[\"tunwg\"]}"
 
 docker compose -f docker-compose-kvm.yml restart

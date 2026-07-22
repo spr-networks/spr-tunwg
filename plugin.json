@@ -10,7 +10,7 @@
   "NetworkCapabilities": {
     "Interface": "spr-tunwg",
     "DeviceMAC": "02:53:50:52:4b:11",
-    "Policies": ["wan"],
+    "Policies": ["wan", "dns"],
     "Groups": ["tunwg"]
   },
   "Enabled": true
