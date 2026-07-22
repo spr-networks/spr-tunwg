@@ -7,7 +7,6 @@
   "Icon": "Cable",
   "HasTopology": true,
   "SandboxedUI": false,
-  "InstallTokenPath": "/configs/plugins/spr-tunwg/api-token",
   "NetworkCapabilities": {
     "Interface": "spr-tunwg",
     "DeviceMAC": "02:53:50:52:4b:11",
