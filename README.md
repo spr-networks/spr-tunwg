@@ -65,7 +65,7 @@ spr-tunwg** (iframe).
 Prompts for your SPR super directory (default `/home/spr/super/`) and an SPR
 API token (generate one on the Auth Keys page), writes the plugin configs,
 builds and starts the container, and registers the `spr-tunwg` interface
-with the SPR firewall (`tunwg` group + `wan` policy). Assign each target
+with the SPR firewall (`tunwg` group + `wan` and `dns` policies). Assign each target
 device to the `tunwg` group before creating its forward.
 
 ## Using it
@@ -134,8 +134,9 @@ re-created forward with the same key name gets the same public URL.
   `/dev/net/tun` (userspace WireGuard), `no-new-privileges:true`, **no
   published host ports** — the only listener is the plugin unix socket.
 - **Network**: dedicated docker bridge `spr-tunwg` with the `tunwg` group (to
-  reach only grouped target devices) and `wan` policy (outbound tunnel traffic
-  to the relay). No `lan` or `api` policy: the backend never calls the SPR API.
+  reach only grouped target devices), `wan` policy (outbound tunnel traffic to
+  the relay), and `dns` policy (relay hostname resolution through SPR). No
+  `lan` or `api` policy: the backend never calls the SPR API.
 - **Secrets**: `config.json` is written 0600. `TUNWG_KEY` names, basic-auth
   hashes, saved basic-auth passwords and the relay auth token are omitted from
   normal list/config responses. An authenticated SPR administrator can reveal
