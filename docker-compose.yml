@@ -9,7 +9,7 @@ x-labels:
 services:
   spr-tunwg:
     container_name: spr-tunwg
-    image: ghcr.io/spr-networks/spr-tunwg:${RELEASE_VERSION:-latest}${RELEASE_CHANNEL:-}
+    image: ghcr.io/spr-networks/spr-tunwg:latest
     build:
       context: "${BUILDCTX:-.}"
       labels: *default-labels
